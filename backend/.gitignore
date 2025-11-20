@@ -1,0 +1,20 @@
+# Entorno virtual
+venv/
+.env
+
+# Archivos temporales de Python
+__pycache__/
+*.pyc
+
+# Archivos del sistema
+.DS_Store
+Thumbs.db
+
+# Archivos generados
+
+*.jpg
+*.jpeg
+*.bmp
+
+# Logs
+*.log
