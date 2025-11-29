@@ -20,4 +20,4 @@ Thumbs.db
 *.log
 
 # Base de datos local
-database.d
+database.db

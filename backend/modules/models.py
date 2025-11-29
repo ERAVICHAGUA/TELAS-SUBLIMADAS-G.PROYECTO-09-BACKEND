@@ -10,4 +10,8 @@ class Inspeccion(Base):
     resultado = Column(String(20))             # APROBADO / RECHAZADO
     max_distancia = Column(Float)              # Distancia máxima detectada
     puntos_defectuosos = Column(String)        # JSON string
+
+  # ejemplos: "Corte incompleto", "Sobrecalentamiento", "Excluido", etc.
+    categoria = Column(String(50), index=True, default="Excluido")
+
     fecha = Column(DateTime(timezone=True), default=func.now())
