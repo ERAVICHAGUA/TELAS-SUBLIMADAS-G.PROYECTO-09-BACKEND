@@ -22,7 +22,7 @@ from modules.analisis import analizar_molde, cargar_contorno_ideal
 
 # Importamos CRUD para guardar y listar registros
 from modules.crud import guardar_inspeccion, listar_inspecciones
-
+from modules.crud_lotes import crear_lote, listar_lotes, obtener_lote, agregar_inspeccion_a_lote
 from pydantic import BaseModel
 
 class DatosClasificacion(BaseModel):
@@ -35,6 +35,13 @@ class DatosClasificacion(BaseModel):
     falla_maquina: bool
     desalineado: bool
     deformacion_material: bool
+
+class DatosLote(BaseModel):
+    codigo_lote: str
+    inspector: str
+
+class DatosAgregarInspeccion(BaseModel):
+    id_inspeccion: int
 
 # ---------------------------------------------------------
 # CONFIG FASTAPI
@@ -272,6 +279,123 @@ def eliminar_inspeccion_api(id: int = Path(...)):
         return {"mensaje": "Inspección no encontrada"}
 
     return {"mensaje": "Inspección eliminada correctamente"}
+
+
+@app.post("/api/lotes")
+def api_crear_lote(datos: DatosLote):
+    nuevo = crear_lote(
+        codigo_lote=datos.codigo_lote,
+        inspector=datos.inspector
+    )
+    return {
+        "id": nuevo.id,
+        "codigo_lote": nuevo.codigo_lote,
+        "inspector": nuevo.inspector,
+        "estado": nuevo.estado,
+        "fecha": nuevo.fecha.isoformat()
+    }
+
+@app.get("/api/lotes")
+def api_listar_lotes():
+    lotes = listar_lotes()
+
+    respuesta = []
+    for l in lotes:
+        respuesta.append({
+            "id": l.id,
+            "codigo_lote": l.codigo_lote,
+            "inspector": l.inspector,
+            "estado": l.estado,
+            "fecha": l.fecha.isoformat(),
+            "total_inspecciones": len(l.inspecciones)
+        })
+
+    return {"lotes": respuesta}
+
+@app.get("/api/lotes/{id_lote}")
+def api_obtener_lote(id_lote: int):
+    lote = obtener_lote(id_lote)
+
+    if not lote:
+        raise HTTPException(status_code=404, detail="Lote no encontrado")
+
+    inspecciones = []
+    for ins in lote.inspecciones:
+        inspecciones.append({
+            "id": ins.id,
+            "resultado": ins.resultado,
+            "categoria": ins.categoria,
+            "max_distancia": ins.max_distancia,
+            "fecha": ins.fecha.isoformat()
+        })
+
+    return {
+        "id": lote.id,
+        "codigo_lote": lote.codigo_lote,
+        "inspector": lote.inspector,
+        "estado": lote.estado,
+        "fecha": lote.fecha.isoformat(),
+        "inspecciones": inspecciones
+    }
+
+@app.post("/api/lotes/{id_lote}/agregar-inspeccion")
+def api_agregar_inspeccion(id_lote: int, datos: DatosAgregarInspeccion):
+    asociada = agregar_inspeccion_a_lote(id_lote, datos.id_inspeccion)
+
+    if not asociada:
+        raise HTTPException(
+            status_code=400,
+            detail="No se pudo asociar la inspección al lote."
+        )
+
+    return {
+        "mensaje": "Inspección agregada al lote correctamente",
+        "inspeccion_id": asociada.id,
+        "lote_id": asociada.lote_id
+    }
+
+from modules.crud_lotes import crear_lote, listar_lotes, obtener_lote, agregar_inspeccion_a_lote
+# 👆 ese import ya lo tienes, mantenlo
+
+from modules.crud import listar_inspecciones  # ya lo tienes arriba
+
+
+@app.get("/api/lotes/{id_lote}/exportar")
+def exportar_lote(id_lote: int):
+    """
+    Exporta a CSV todas las inspecciones asociadas a un lote específico.
+    """
+    lote = obtener_lote(id_lote)
+
+    if not lote:
+        raise HTTPException(status_code=404, detail="Lote no encontrado")
+
+    if not lote.inspecciones:
+        raise HTTPException(status_code=404, detail="Ese lote no tiene inspecciones asociadas")
+
+    output = StringIO()
+    writer = csv.writer(output)
+
+    # Cabeceras del CSV
+    writer.writerow(["ID Inspección", "Resultado", "Categoria", "Max Distancia", "Fecha"])
+
+    # Filas: todas las inspecciones del lote
+    for ins in lote.inspecciones:
+        writer.writerow([
+            ins.id,
+            ins.resultado,
+            ins.categoria,
+            ins.max_distancia,
+            ins.fecha.isoformat()
+        ])
+
+    output.seek(0)
+
+    return StreamingResponse(
+        output,
+        media_type="text/csv",
+        headers={"Content-Disposition": f"attachment; filename=lote_{id_lote}.csv"}
+    )
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)
