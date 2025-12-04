@@ -4,62 +4,151 @@ import pandas as pd
 
 API_URL = "http://127.0.0.1:8000"
 
-st.set_page_config(page_title="Inspección de Rebaba", layout="wide")
+st.set_page_config(page_title="Control de Calidad Láser", layout="wide")
 
-st.title("🔍 Sistema de Inspección de Rebaba + Registro de Medidas")
+# ============================
+# MENÚ SUPERIOR (SENCILLO Y ELEGANTE)
+# ============================
 
-tab1, tab2 = st.tabs(["📤 Inspeccionar Imagen", "📜 Ver Registros"])
+st.title("🏭 Sistema de Control de Calidad Láser")
 
-# ============================================================
-# TAB 1 — INSPECCIONAR IMAGEN
-# ============================================================
-with tab1:
-    st.header("Subir imagen para inspección")
+menu = st.radio(
+    "Navegación",
+    ["🏠 Inicio", "🔍 Inspeccionar", "📜 Registros", "📦 Lotes", "🚨 Alertas", "📊 Estadísticas", "📤 Exportar"],
+    horizontal=True
+)
+
+st.markdown("---")
+
+# ============================
+# 🏠 INICIO
+# ============================
+
+if menu == "🏠 Inicio":
+    st.header("Bienvenido al Sistema Automatizado de Inspección Láser")
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        st.image("assets/banner.png", caption="Máquina de corte láser", use_column_width=True)
+
+    with col2:
+        st.subheader("Sobre el sistema")
+        st.write("""
+        Este sistema permite:
+        - 🔍 Analizar imágenes para detectar rebaba o defectos
+        - 📦 Gestionar lotes de inspecciones
+        - 📜 Registrar automáticamente cada análisis
+        - 🚨 Enviar alertas automáticas por correo
+        - 📊 Mostrar estadísticas para supervisión
+        """)
+
+    st.success("Usa el menú superior para navegar entre módulos.")
+
+# ============================
+# 🔍 INSPECCIONAR IMAGEN
+# ============================
+
+elif menu == "🔍 Inspeccionar":
+    st.header("Análisis automático de imagen")
 
     uploaded_file = st.file_uploader("Selecciona una imagen", type=["png", "jpg", "jpeg"])
 
     if uploaded_file:
-        st.image(uploaded_file, caption="Imagen subida", width=350)
+        st.image(uploaded_file, width=350)
 
-        if st.button("🔎 Procesar imagen"):
-            with st.spinner("Analizando..."):
+        if st.button("Procesar imagen"):
+            files = {"file": (uploaded_file.name, uploaded_file, uploaded_file.type)}
+            resp = requests.post(f"{API_URL}/api/inspeccionar", files=files)
 
-                files = {"file": (uploaded_file.name, uploaded_file, uploaded_file.type)}
-                response = requests.post(f"{API_URL}/api/inspeccionar", files=files)
+            if resp.status_code == 200:
+                st.success("Procesado correctamente")
+                st.json(resp.json())
+            else:
+                st.error("Error al procesar imagen")
 
-                if response.status_code == 200:
-                    data = response.json()
+# ============================
+# 📜 REGISTROS
+# ============================
 
-                    st.subheader("📌 Resultado")
-                    st.write(f"**Estado:** {data['status']}")
-                    st.write(data["mensaje"])
-
-                    st.write("**Puntos defectuosos detectados:**")
-                    st.json(data["puntos_defectuosos"])
-
-                    st.write(f"**Distancia Máxima:** {data['max_distancia']} px")
-
-                else:
-                    st.error("❌ Error al comunicarse con el backend")
-
-# ============================================================
-# TAB 2 — VER REGISTROS
-# ============================================================
-with tab2:
+elif menu == "📜 Registros":
     st.header("Historial de inspecciones")
 
-    if st.button("📥 Cargar registros"):
-        with st.spinner("Obteniendo datos..."):
-            response = requests.get(f"{API_URL}/api/registros")
+    if st.button("Cargar registros"):
+        resp = requests.get(f"{API_URL}/api/registros")
 
-            if response.status_code == 200:
-                data = response.json()
-                registros = data.get("inspecciones", [])
-
-                if len(registros) == 0:
-                    st.info("No hay registros aún.")
-                else:
-                    df = pd.DataFrame(registros)
-                    st.dataframe(df, use_container_width=True)
+        if resp.status_code == 200:
+            registros = resp.json().get("inspecciones", [])
+            if len(registros) == 0:
+                st.info("No hay registros todavía")
             else:
-                st.error("❌ Error al obtener registros desde el backend")
+                st.dataframe(pd.DataFrame(registros), use_container_width=True)
+        else:
+            st.error("Error al obtener registros")
+
+# ============================
+# 📦 LOTES
+# ============================
+
+elif menu == "📦 Lotes":
+    st.header("Gestión de Lotes")
+
+    st.subheader("Crear nuevo lote")
+    codigo = st.text_input("Código del lote")
+    inspector = st.text_input("Inspector")
+
+    if st.button("Crear lote"):
+        resp = requests.post(f"{API_URL}/api/lotes", json={
+            "codigo_lote": codigo,
+            "inspector": inspector
+        })
+        st.json(resp.json())
+
+    st.markdown("---")
+
+    st.subheader("Listar lotes")
+    if st.button("Cargar lotes"):
+        resp = requests.get(f"{API_URL}/api/lotes")
+        st.dataframe(pd.DataFrame(resp.json().get("lotes", [])))
+
+# ============================
+# 🚨 ALERTAS
+# ============================
+
+elif menu == "🚨 Alertas":
+    st.header("Sistema de Alertas")
+
+    if st.button("Verificar alertas"):
+        resp = requests.get(f"{API_URL}/api/alertas/verificar")
+        st.json(resp.json())
+
+    st.markdown("---")
+
+    if st.button("Enviar email de prueba"):
+        resp = requests.get(f"{API_URL}/api/alertas/test-email")
+        st.json(resp.json())
+
+# ============================
+# 📊 ESTADÍSTICAS
+# ============================
+
+elif menu == "📊 Estadísticas":
+    st.header("Estadísticas por categoría")
+
+    resp = requests.get(f"{API_URL}/api/estadisticas/categorias")
+
+    if resp.status_code == 200:
+        data = resp.json()["estadisticas"]
+        df = pd.DataFrame(list(data.items()), columns=["Categoría", "Cantidad"])
+        st.bar_chart(df, x="Categoría", y="Cantidad")
+    else:
+        st.error("No se pudieron cargar estadísticas")
+
+# ============================
+# 📤 EXPORTAR
+# ============================
+
+elif menu == "📤 Exportar":
+    st.header("Descargar datos")
+
+    st.markdown(f"[📥 Descargar CSV de inspecciones]({API_URL}/api/exportar)")
