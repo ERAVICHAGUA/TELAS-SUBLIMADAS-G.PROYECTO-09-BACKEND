@@ -5,6 +5,7 @@ from fastapi.responses import StreamingResponse
 from modules.crud import eliminar_inspeccion
 from fastapi import Path
 
+from modules.reportes_router import router as reportes_router
 
 from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.responses import JSONResponse
@@ -56,6 +57,8 @@ app = FastAPI(
     title="Sistema de Control de Calidad Láser (Simulación)",
     description="Backend de FastAPI modular para detección de rebaba, registro de inspecciones y sistema de alertas."
 )
+
+app.include_router(reportes_router)
 
 # Configurar CORS (si tienes frontend)
 app.add_middleware(
