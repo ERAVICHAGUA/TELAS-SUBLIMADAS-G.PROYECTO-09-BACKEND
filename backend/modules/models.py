@@ -1,7 +1,10 @@
 # backend/modules/models.py
-from sqlalchemy import Column, Integer, String, Float, DateTime, ForeignKey, Boolean, Text
+from sqlalchemy import (
+    Column, Integer, String, Float, DateTime, ForeignKey, Boolean, Text, Date
+)
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
+from datetime import datetime  # ← IMPORT NECESARIO
 from .db import Base
 
 # ----------------------------
@@ -74,3 +77,5 @@ class ReporteSemanal(Base):
     porcentaje_defectos = Column(Float)
     tendencia = Column(Float)  # diferencia vs semana anterior
     generado_en = Column(DateTime, default=datetime.utcnow)
+
+

@@ -6,3 +6,4 @@ numpy
 SQLAlchemy
 pydantic
 python-dotenv
+apscheduler
