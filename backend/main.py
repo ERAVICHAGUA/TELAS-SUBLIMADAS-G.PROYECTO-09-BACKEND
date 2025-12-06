@@ -5,6 +5,10 @@ from fastapi.responses import StreamingResponse
 from modules.crud import eliminar_inspeccion
 from fastapi import Path
 
+from apscheduler.schedulers.background import BackgroundScheduler
+from modules.reporte_service import ReporteService
+scheduler = BackgroundScheduler()
+
 from modules.reportes_router import router as reportes_router
 
 from fastapi import FastAPI, File, UploadFile, HTTPException
@@ -12,7 +16,8 @@ from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 import json
-from modules.db import Base, engine
+from modules.db import Base, engine, SessionLocal
+from modules.models import ReporteSemanal
 from modules.crud import guardar_inspeccion_clasificada
 from modules.crud import filtrar_por_categoria
 from modules.crud import obtener_estadisticas_por_categoria
@@ -90,6 +95,20 @@ def startup_event():
     print("\n🔧 Probando configuración de email...")
     EmailService.test_conexion()
 
+
+    # Iniciar scheduler
+    scheduler.add_job(
+        ReporteService.generar_reporte_semanal,
+        trigger="cron",
+        day_of_week="sun",
+        hour=23,
+        minute=59,
+        id="reporte_semanal_auto",
+        replace_existing=True
+    )
+
+    scheduler.start()
+    print("🗓️ Scheduler semanal activado.")
 
 # ---------------------------------------------------------
 # ENDPOINT PRINCIPAL: INSPECCIÓN DE MOLDE (CON ALERTAS)
@@ -543,55 +562,4 @@ def exportar_lote(id_lote: int):
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)
 
-# Importamos  para Programar la generación automática cada semana
 
-from apscheduler.schedulers.background import BackgroundScheduler
-from modules.reporte_service import ReporteService
-
-# Programador de tareas
-scheduler = BackgroundScheduler()
-
-@app.on_event("startup")
-def startup_event():
-
-    scheduler.start()
-
-    # Reportes semanales → todos los lunes a las 00:00
-    scheduler.add_job(
-        ReporteService.generar_reporte_semanal,
-        "cron",
-        day_of_week="mon",
-        hour=0,
-        minute=0
-    )
-
-    print("🗓️ Programación automática de reportes semanales activada.")
-
-#endpoint para generar reporte manualmente
-@app.post("/api/reportes/semanal/generar")
-def generar_reporte_manual():
-    resultado = ReporteService.generar_reporte_semanal()
-    return JSONResponse(content=resultado)
-
-#endpoint para consultar reportes
-@app.get("/api/reportes/semanal")
-def obtener_reportes():
-    db = SessionLocal()
-    reportes = db.query(ReporteSemanal).order_by(ReporteSemanal.fecha_inicio.desc()).all()
-    db.close()
-    
-    return {
-        "reportes": [
-            {
-                "id": r.id,
-                "inicio": r.fecha_inicio.isoformat(),
-                "fin": r.fecha_fin.isoformat(),
-                "total": r.total_inspecciones,
-                "rechazados": r.total_rechazados,
-                "aprobados": r.total_aprobados,
-                "porcentaje": r.porcentaje_defectos,
-                "tendencia": r.tendencia,
-            }
-            for r in reportes
-        ]
-    }

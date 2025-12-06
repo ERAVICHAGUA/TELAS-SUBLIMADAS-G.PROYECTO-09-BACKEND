@@ -12,6 +12,12 @@ from openpyxl import Workbook
 from modules.db import get_db
 from modules.reportes_services import obtener_reporte_calidad
 
+def normalizar_fecha_inicio(fecha: datetime) -> datetime:
+    return datetime.combine(fecha.date(), datetime.min.time())
+
+def normalizar_fecha_fin(fecha: datetime) -> datetime:
+    return datetime.combine(fecha.date(), datetime.max.time())
+
 router = APIRouter(
     prefix="/api/reportes",
     tags=["Reportes de Calidad"]
@@ -28,6 +34,10 @@ def reporte_semanal(
     """
     Devuelve el reporte semanal en JSON.
     """
+    # 👇 aquí normalizas
+    fecha_inicio = normalizar_fecha_inicio(fecha_inicio)
+    fecha_fin = normalizar_fecha_fin(fecha_fin)
+
     datos = obtener_reporte_calidad(
         db=db,
         fecha_inicio=fecha_inicio,
