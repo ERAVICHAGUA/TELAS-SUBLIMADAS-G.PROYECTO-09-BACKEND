@@ -14,7 +14,7 @@ st.title("🏭 Sistema de Control de Calidad Láser")
 
 menu = st.radio(
     "Navegación",
-    ["🏠 Inicio", "🔍 Inspeccionar", "📜 Registros", "📦 Lotes", "🚨 Alertas", "📊 Estadísticas", "📤 Exportar"],
+    ["🏠 Inicio", "🔍 Inspeccionar", "📜 Registros", "📦 Lotes", "🚨 Alertas", "📊 Estadísticas", "📅 Reportes", "📤 Exportar"],
     horizontal=True
 )
 
@@ -145,10 +145,85 @@ elif menu == "📊 Estadísticas":
         st.error("No se pudieron cargar estadísticas")
 
 # ============================
-# 📤 EXPORTAR
+# 📅 REPORTES SEMANALES
 # ============================
 
-elif menu == "📤 Exportar":
-    st.header("Descargar datos")
+elif menu == "📅 Reportes":
+    st.header("📅 Reporte Semanal de Calidad")
+    st.write("Genera, visualiza y descarga el reporte semanal de calidad.")
 
-    st.markdown(f"[📥 Descargar CSV de inspecciones]({API_URL}/api/exportar)")
+    st.subheader("Seleccionar rango de fechas")
+
+    fecha_inicio = st.date_input("Fecha inicio")
+    fecha_fin = st.date_input("Fecha fin")
+
+    st.markdown("---")
+
+    # ============================
+    # 📊 GENERAR REPORTE (JSON)
+    # ============================
+    if st.button("📊 Generar reporte semanal"):
+        if fecha_inicio > fecha_fin:
+            st.error("La fecha inicio no puede ser mayor que la fecha fin.")
+        else:
+            url = f"{API_URL}/api/reportes/semanal"
+            params = {
+                "fecha_inicio": fecha_inicio.isoformat(),
+                "fecha_fin": fecha_fin.isoformat()
+            }
+
+            with st.spinner("Generando reporte..."):
+                resp = requests.get(url, params=params)
+
+                if resp.status_code == 200:
+                    datos = resp.json()
+
+                    st.success("Reporte generado correctamente")
+                    st.write("### Resumen")
+
+                    st.json(datos)
+
+                else:
+                    st.error("Error al generar reporte")
+
+    st.markdown("---")
+
+    # ============================
+    # 📥 DESCARGAR EXCEL
+    # ============================
+    if st.button("📥 Descargar Excel"):
+        if fecha_inicio > fecha_fin:
+            st.error("La fecha inicio no puede ser mayor que la fecha fin.")
+        else:
+            url = f"{API_URL}/api/reportes/semanal/excel"
+            params = {
+                "fecha_inicio": fecha_inicio.isoformat(),
+                "fecha_fin": fecha_fin.isoformat()
+            }
+
+            with st.spinner("Descargando archivo Excel..."):
+                resp = requests.get(url, params=params)
+
+                if resp.status_code == 200:
+                    st.download_button(
+                        label="📥 Descargar archivo Excel",
+                        data=resp.content,
+                        file_name=f"reporte_semanal_{fecha_inicio}_{fecha_fin}.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                    )
+                else:
+                    st.error("No se pudo generar el archivo")
+
+    st.markdown("---")
+
+    # ============================
+    # 📧 ENVIAR REPORTE POR EMAIL (OPCIONAL)
+    # ============================
+    if st.button("📧 Enviar reporte semanal por email"):
+        resp = requests.post(f"{API_URL}/api/alertas/programar-reporte")
+
+        if resp.status_code == 200:
+            st.success("Reporte enviado por correo correctamente.")
+        else:
+            st.error("Error al enviar correo.")
+
