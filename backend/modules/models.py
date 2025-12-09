@@ -4,7 +4,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
-from datetime import datetime  # ← IMPORT NECESARIO
+from datetime import datetime  
 from .db import Base
 
 # ----------------------------
@@ -21,6 +21,19 @@ class Lote(Base):
 
     # 1:N (un lote tiene muchas inspecciones)
     inspecciones = relationship("Inspeccion", back_populates="lote")
+    cliente_id = Column(Integer, ForeignKey("clientes.id"), nullable=True)
+    cliente = relationship("Cliente", back_populates="lotes")
+
+# AGREGANDO MODELO CLIENTE:
+class Cliente(Base):
+    __tablename__ = "clientes"
+
+    id = Column(Integer, primary_key=True, index=True)
+    nombre = Column(String(150), unique=True, index=True)
+    contacto = Column(String(150), nullable=True)
+
+    # Relación 1:N con inspecciones
+    lotes = relationship("Lote", back_populates="cliente") #SE MODIFICO INSPECCION POR LOTE
 
 
 # ----------------------------
@@ -42,6 +55,7 @@ class Inspeccion(Base):
     lote_id = Column(Integer, ForeignKey("lotes.id"), nullable=True)
     lote = relationship("Lote", back_populates="inspecciones")
 
+    
 
 # ----------------------------
 # MODELO ALERTA
@@ -77,5 +91,3 @@ class ReporteSemanal(Base):
     porcentaje_defectos = Column(Float)
     tendencia = Column(Float)  # diferencia vs semana anterior
     generado_en = Column(DateTime, default=datetime.utcnow)
-
-
