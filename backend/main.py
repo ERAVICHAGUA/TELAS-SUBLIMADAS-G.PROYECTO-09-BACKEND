@@ -10,6 +10,7 @@ from modules.reporte_service import ReporteService
 scheduler = BackgroundScheduler()
 
 from modules.reportes_router import router as reportes_router
+from modules.despacho_router import router as despacho_router
 
 from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.responses import JSONResponse
@@ -65,6 +66,7 @@ app = FastAPI(
 )
 
 app.include_router(reportes_router)
+app.include_router(despacho_router)
 
 # Configurar CORS (si tienes frontend)
 app.add_middleware(

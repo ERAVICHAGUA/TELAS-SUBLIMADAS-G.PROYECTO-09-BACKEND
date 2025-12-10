@@ -24,6 +24,32 @@ class Lote(Base):
     cliente_id = Column(Integer, ForeignKey("clientes.id"), nullable=True)
     cliente = relationship("Cliente", back_populates="lotes")
 
+# 👇 NUEVO: historial de validaciones de despacho
+    validaciones = relationship(
+        "ValidacionLote",
+        back_populates="lote",
+        cascade="all, delete-orphan"
+    )
+
+class ValidacionLote(Base):
+    __tablename__ = "validaciones_lote"
+
+    id = Column(Integer, primary_key=True, index=True)
+    lote_id = Column(Integer, ForeignKey("lotes.id"), nullable=False)
+
+    usuario = Column(String(100), nullable=False)     # quién validó
+    accion  = Column(String(20), nullable=False)      # "LIBERAR" / "BLOQUEAR"
+    motivo  = Column(Text, nullable=True)             # opcional
+
+    fecha_hora = Column(DateTime(timezone=True), default=func.now())
+
+    total_aprobados  = Column(Integer, default=0)
+    total_rechazados = Column(Integer, default=0)
+    total_pendientes = Column(Integer, default=0)
+
+    lote = relationship("Lote", back_populates="validaciones")
+
+
 # AGREGANDO MODELO CLIENTE:
 class Cliente(Base):
     __tablename__ = "clientes"
