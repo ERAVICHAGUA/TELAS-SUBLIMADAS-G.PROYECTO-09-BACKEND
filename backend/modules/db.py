@@ -11,15 +11,19 @@ import os
 BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 
 # Ruta completa a database.db dentro de backend/
-DATABASE_PATH = os.path.join(BASE_DIR, "database.db")
+#DATABASE_PATH = os.path.join(BASE_DIR, "database.db")
 
 # Formato correcto para SQLite
-DATABASE_URL = f"sqlite:///{DATABASE_PATH}"
+DATABASE_URL = (
+    "postgresql+psycopg2://postgres:TSG-Proyecto09-2025!@"
+    "3.19.91.139:5432/telas_sublimadas_db"
+)
+
 
 # Crear engine
 engine = create_engine(
     DATABASE_URL,
-    connect_args={"check_same_thread": False},  # Necesario para SQLite
+    #connect_args={"check_same_thread": False},  # Necesario para SQLite
     echo=False  # Cambia a True si quieres ver las queries en consola
 )
 
