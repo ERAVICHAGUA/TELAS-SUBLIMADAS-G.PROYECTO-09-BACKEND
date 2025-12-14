@@ -6,6 +6,7 @@ numpy
 SQLAlchemy
 pydantic
 python-dotenv
-apscheduler
+pymysql
+reportlab
 openpyxl
-psycopg2-binary
+apscheduler
