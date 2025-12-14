@@ -15,9 +15,9 @@ def get_db():
         db.close()
 
 
-def guardar_inspeccion(resultado: str, max_distancia: float, puntos_defectuosos: list):
+def guardar_inspeccion(resultado: str, max_distancia: float, puntos_defectuosos: list, observaciones: str = None):
     """
-    Guarda los datos de inspección en SQLite.
+    Guarda los datos de inspección en MySQL.
     Esta versión NO recibe 'db' porque crea su propia sesión interna.
     """
     db = SessionLocal()
@@ -27,7 +27,8 @@ def guardar_inspeccion(resultado: str, max_distancia: float, puntos_defectuosos:
             resultado=resultado,
             max_distancia=max_distancia,
             puntos_defectuosos=json.dumps(puntos_defectuosos),
-            fecha=datetime.now()
+            fecha=datetime.now(),
+            observaciones=observaciones
         )
 
         db.add(nueva)

@@ -16,14 +16,23 @@ def crear_sesion():
 # ---------------------------------------------------------
 # Crear un nuevo lote
 # ---------------------------------------------------------
-def crear_lote(codigo_lote: str, inspector: str):
+def crear_lote(
+    codigo_lote: str, 
+    inspector: str,
+    cliente: str = None,
+    tipo_producto: str = None,
+    orden: str = None
+):
     db = SessionLocal()
     try:
         nuevo = Lote(
             codigo_lote=codigo_lote,
             inspector=inspector,
             estado="EN PROCESO",
-            fecha=datetime.now()
+            fecha=datetime.now(),
+            cliente=cliente,
+            tipo_producto=tipo_producto,
+            orden=orden
         )
 
         db.add(nuevo)
