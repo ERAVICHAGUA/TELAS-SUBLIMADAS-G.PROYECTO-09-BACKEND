@@ -48,6 +48,9 @@ class DatosClasificacion(BaseModel):
 class DatosLote(BaseModel):
     codigo_lote: str
     inspector: str
+    cliente: Optional[str] = None
+    tipo_producto: Optional[str] = None
+    orden: Optional[str] = None
 
 class DatosAgregarInspeccion(BaseModel):
     id_inspeccion: int
@@ -55,6 +58,12 @@ class DatosAgregarInspeccion(BaseModel):
 # NUEVO: Importar servicios de alertas y email
 from modules.alert_service import AlertService
 from modules.email_service import EmailService
+
+# NUEVO: Importar servicios de historial y exportación
+from modules.crud_historial import consultar_historial_calidad, registrar_auditoria, obtener_historial_completo_para_exportacion
+from modules.export_service import generar_pdf_historial, generar_excel_historial
+from datetime import datetime
+from typing import Optional
 
 # ---------------------------------------------------------
 # CONFIG FASTAPI
@@ -85,16 +94,16 @@ app.add_middleware(
 def startup_event():
     """Carga la plantilla ideal y crea la base de datos si no existe."""
     
-    # Crear tablas de SQLite
+    # Crear tablas de MySQL
     Base.metadata.create_all(bind=engine)
-    print("✔ Base de datos lista. Tablas creadas.")
+    print("[OK] Base de datos MySQL lista. Tablas creadas.")
     
     # Cargar plantilla ideal
     if not cargar_contorno_ideal():
-        print("⚠ ADVERTENCIA: No se cargó la plantilla ideal. El análisis no funcionará.")
+        print("[WARNING] ADVERTENCIA: No se cargo la plantilla ideal. El analisis no funcionara.")
     
     # NUEVO: Probar conexión SMTP
-    print("\n🔧 Probando configuración de email...")
+    print("\n[CONFIG] Probando configuracion de email...")
     EmailService.test_conexion()
 
 
@@ -120,7 +129,7 @@ def startup_event():
 async def inspeccionar_calidad(file: UploadFile = File(...)):
     """
     Recibe la imagen y devuelve si está APROBADA o RECHAZADA.
-    Además guarda el resultado en SQLite y verifica si debe crear una alerta.
+    Además guarda el resultado en MySQL y verifica si debe crear una alerta.
     """
     try:
         # Leer bytes de la imagen
@@ -133,7 +142,7 @@ async def inspeccionar_calidad(file: UploadFile = File(...)):
         if resultado.get("status") == "ERROR":
             raise HTTPException(status_code=400, detail=resultado["mensaje"])
 
-        # Guardar resultado en SQLite
+        # Guardar resultado en MySQL
         guardar_inspeccion(
             resultado=resultado["status"],
             max_distancia=resultado["max_distancia"],
@@ -173,7 +182,7 @@ async def inspeccionar_calidad(file: UploadFile = File(...)):
 @app.get("/api/registros")
 def obtener_registros():
     """
-    Lista todas las inspecciones guardadas en SQLite.
+    Lista todas las inspecciones guardadas en MySQL.
     """
     registros = listar_inspecciones()
 
@@ -259,8 +268,16 @@ def obtener_estadisticas():
     """
     try:
         stats = AlertService.calcular_porcentaje_defectos()
+        # Si hay un error en el diccionario de respuesta, lanzar excepción
+        if "error" in stats:
+            raise HTTPException(status_code=500, detail=stats.get("error", "Error desconocido"))
         return JSONResponse(content=stats)
+    except HTTPException:
+        raise
     except Exception as e:
+        import traceback
+        error_detail = f"{str(e)}\n{traceback.format_exc()}"
+        print(f"[ERROR] Error en obtener_estadisticas: {error_detail}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -449,17 +466,23 @@ def eliminar_inspeccion_api(id: int = Path(...)):
 def api_crear_lote(datos: DatosLote):
     nuevo = crear_lote(
         codigo_lote=datos.codigo_lote,
-        inspector=datos.inspector
+        inspector=datos.inspector,
+        cliente=datos.cliente,
+        tipo_producto=datos.tipo_producto,
+        orden=datos.orden
     )
     return {
         "id": nuevo.id,
         "codigo_lote": nuevo.codigo_lote,
         "inspector": nuevo.inspector,
         "estado": nuevo.estado,
-        "fecha": nuevo.fecha.isoformat()
+        "fecha": nuevo.fecha.isoformat(),
+        "cliente": nuevo.cliente,
+        "tipo_producto": nuevo.tipo_producto,
+        "orden": nuevo.orden
     }
 
-@app.get("/api/lotes")
+@app.get("/api/lotes/listar")
 def api_listar_lotes():
     lotes = listar_lotes()
 
@@ -560,6 +583,249 @@ def exportar_lote(id_lote: int):
         media_type="text/csv",
         headers={"Content-Disposition": f"attachment; filename=lote_{id_lote}.csv"}
     )
+
+
+# ---------------------------------------------------------
+# NUEVOS ENDPOINTS: HISTORIAL DE CALIDAD POR CLIENTE
+# ---------------------------------------------------------
+
+@app.get("/api/historial-calidad")
+def obtener_historial_calidad(
+    cliente: Optional[str] = None,
+    fecha_inicio: Optional[str] = None,  # Formato: YYYY-MM-DD
+    fecha_fin: Optional[str] = None,  # Formato: YYYY-MM-DD
+    tipo_producto: Optional[str] = None,
+    estado: Optional[str] = None,
+    pagina: int = 1,
+    por_pagina: int = 20,
+    orden: str = "desc",  # 'desc' o 'asc'
+    usuario: Optional[str] = None  # Para auditoría
+):
+    """
+    Consulta el historial de calidad por cliente con filtros y paginación.
+    
+    Filtros disponibles:
+    - cliente: Nombre del cliente (búsqueda parcial)
+    - fecha_inicio: Fecha de inicio (YYYY-MM-DD)
+    - fecha_fin: Fecha de fin (YYYY-MM-DD)
+    - tipo_producto: Tipo de producto (búsqueda parcial)
+    - estado: Estado del producto o inspección (búsqueda parcial)
+    - pagina: Número de página (por defecto 1)
+    - por_pagina: Registros por página (por defecto 20)
+    - orden: 'desc' (más reciente primero) o 'asc' (más antiguo primero)
+    - usuario: Usuario que realiza la consulta (para auditoría)
+    """
+    try:
+        # Convertir fechas de string a datetime
+        fecha_inicio_dt = None
+        fecha_fin_dt = None
+        
+        if fecha_inicio:
+            try:
+                fecha_inicio_dt = datetime.strptime(fecha_inicio, "%Y-%m-%d")
+            except ValueError:
+                raise HTTPException(status_code=400, detail="Formato de fecha_inicio inválido. Use YYYY-MM-DD")
+        
+        if fecha_fin:
+            try:
+                fecha_fin_dt = datetime.strptime(fecha_fin, "%Y-%m-%d")
+            except ValueError:
+                raise HTTPException(status_code=400, detail="Formato de fecha_fin inválido. Use YYYY-MM-DD")
+        
+        # Validar paginación
+        if pagina < 1:
+            pagina = 1
+        if por_pagina < 1 or por_pagina > 100:
+            por_pagina = 20
+        
+        # Consultar historial
+        resultado = consultar_historial_calidad(
+            cliente=cliente,
+            fecha_inicio=fecha_inicio_dt,
+            fecha_fin=fecha_fin_dt,
+            tipo_producto=tipo_producto,
+            estado=estado,
+            pagina=pagina,
+            por_pagina=por_pagina,
+            orden=orden
+        )
+        
+        # Registrar auditoría de consulta
+        if usuario:
+            registrar_auditoria(
+                tipo_accion="CONSULTA",
+                usuario=usuario,
+                cliente=cliente,
+                fecha_inicio=fecha_inicio_dt,
+                fecha_fin=fecha_fin_dt,
+                tipo_producto=tipo_producto,
+                estado=estado
+            )
+        
+        # Si no hay resultados, devolver mensaje apropiado
+        if resultado["paginacion"]["total_registros"] == 0:
+            mensaje = "No se encontraron resultados para el criterio seleccionado."
+            if cliente or fecha_inicio or fecha_fin or tipo_producto or estado:
+                mensaje += " Puede limpiar los filtros o cambiar el rango de fechas."
+            
+            return JSONResponse(content={
+                "registros": [],
+                "paginacion": resultado["paginacion"],
+                "mensaje": mensaje
+            })
+        
+        return JSONResponse(content=resultado)
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        error_detail = f"{str(e)}\n{traceback.format_exc()}"
+        print(f"[ERROR] Error en obtener_historial_calidad: {error_detail}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/historial-calidad/exportar-pdf")
+def exportar_historial_pdf(
+    cliente: Optional[str] = None,
+    fecha_inicio: Optional[str] = None,
+    fecha_fin: Optional[str] = None,
+    tipo_producto: Optional[str] = None,
+    estado: Optional[str] = None,
+    usuario: Optional[str] = None
+):
+    """
+    Exporta el historial de calidad a PDF con los filtros aplicados.
+    """
+    try:
+        # Convertir fechas
+        fecha_inicio_dt = None
+        fecha_fin_dt = None
+        
+        if fecha_inicio:
+            fecha_inicio_dt = datetime.strptime(fecha_inicio, "%Y-%m-%d")
+        if fecha_fin:
+            fecha_fin_dt = datetime.strptime(fecha_fin, "%Y-%m-%d")
+        
+        # Obtener todos los registros (sin paginación)
+        registros = obtener_historial_completo_para_exportacion(
+            cliente=cliente,
+            fecha_inicio=fecha_inicio_dt,
+            fecha_fin=fecha_fin_dt,
+            tipo_producto=tipo_producto,
+            estado=estado
+        )
+        
+        # Generar PDF
+        pdf_buffer = generar_pdf_historial(
+            registros=registros,
+            cliente=cliente,
+            fecha_inicio=fecha_inicio_dt,
+            fecha_fin=fecha_fin_dt,
+            usuario=usuario
+        )
+        
+        # Registrar auditoría de descarga
+        if usuario:
+            registrar_auditoria(
+                tipo_accion="DESCARGA",
+                usuario=usuario,
+                cliente=cliente,
+                fecha_inicio=fecha_inicio_dt,
+                fecha_fin=fecha_fin_dt,
+                tipo_producto=tipo_producto,
+                estado=estado,
+                formato_exportacion="PDF"
+            )
+        
+        # Generar nombre de archivo
+        nombre_archivo = f"historial_calidad_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
+        if cliente:
+            nombre_archivo = f"historial_calidad_{cliente.replace(' ', '_')}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
+        
+        return StreamingResponse(
+            pdf_buffer,
+            media_type="application/pdf",
+            headers={"Content-Disposition": f"attachment; filename={nombre_archivo}"}
+        )
+    
+    except Exception as e:
+        import traceback
+        error_detail = f"{str(e)}\n{traceback.format_exc()}"
+        print(f"[ERROR] Error en exportar_historial_pdf: {error_detail}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/historial-calidad/exportar-excel")
+def exportar_historial_excel(
+    cliente: Optional[str] = None,
+    fecha_inicio: Optional[str] = None,
+    fecha_fin: Optional[str] = None,
+    tipo_producto: Optional[str] = None,
+    estado: Optional[str] = None,
+    usuario: Optional[str] = None
+):
+    """
+    Exporta el historial de calidad a Excel con los filtros aplicados.
+    """
+    try:
+        # Convertir fechas
+        fecha_inicio_dt = None
+        fecha_fin_dt = None
+        
+        if fecha_inicio:
+            fecha_inicio_dt = datetime.strptime(fecha_inicio, "%Y-%m-%d")
+        if fecha_fin:
+            fecha_fin_dt = datetime.strptime(fecha_fin, "%Y-%m-%d")
+        
+        # Obtener todos los registros (sin paginación)
+        registros = obtener_historial_completo_para_exportacion(
+            cliente=cliente,
+            fecha_inicio=fecha_inicio_dt,
+            fecha_fin=fecha_fin_dt,
+            tipo_producto=tipo_producto,
+            estado=estado
+        )
+        
+        # Generar Excel
+        excel_buffer = generar_excel_historial(
+            registros=registros,
+            cliente=cliente,
+            fecha_inicio=fecha_inicio_dt,
+            fecha_fin=fecha_fin_dt,
+            usuario=usuario
+        )
+        
+        # Registrar auditoría de descarga
+        if usuario:
+            registrar_auditoria(
+                tipo_accion="DESCARGA",
+                usuario=usuario,
+                cliente=cliente,
+                fecha_inicio=fecha_inicio_dt,
+                fecha_fin=fecha_fin_dt,
+                tipo_producto=tipo_producto,
+                estado=estado,
+                formato_exportacion="EXCEL"
+            )
+        
+        # Generar nombre de archivo
+        nombre_archivo = f"historial_calidad_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+        if cliente:
+            nombre_archivo = f"historial_calidad_{cliente.replace(' ', '_')}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+        
+        return StreamingResponse(
+            excel_buffer,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": f"attachment; filename={nombre_archivo}"}
+        )
+    
+    except Exception as e:
+        import traceback
+        error_detail = f"{str(e)}\n{traceback.format_exc()}"
+        print(f"[ERROR] Error en exportar_historial_excel: {error_detail}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)
