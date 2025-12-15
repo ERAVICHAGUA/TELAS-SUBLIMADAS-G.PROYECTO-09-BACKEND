@@ -238,3 +238,203 @@ def generar_excel_historial(
     buffer.seek(0)
     return buffer
 
+
+def generar_pdf_plan_mantenimiento(
+    ordenes: List[Dict],
+    maquina: Optional[str] = None,
+    usuario: Optional[str] = None
+) -> BytesIO:
+    """
+    Genera un PDF con el plan de mantenimiento preventivo.
+    """
+    buffer = BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=A4)
+    story = []
+    styles = getSampleStyleSheet()
+    
+    # Estilo para título
+    title_style = ParagraphStyle(
+        'CustomTitle',
+        parent=styles['Heading1'],
+        fontSize=16,
+        textColor=colors.HexColor('#1a1a1a'),
+        spaceAfter=30,
+        alignment=1
+    )
+    
+    # Título
+    story.append(Paragraph("Plan de Mantenimiento Preventivo", title_style))
+    story.append(Spacer(1, 0.2*inch))
+    
+    # Metadatos
+    meta_data = []
+    if maquina:
+        meta_data.append(["Máquina:", maquina])
+    meta_data.append(["Fecha de Generación:", datetime.now().strftime("%d/%m/%Y %H:%M:%S")])
+    if usuario:
+        meta_data.append(["Generado por:", usuario])
+    meta_data.append(["Total de Órdenes:", str(len(ordenes))])
+    
+    meta_table = Table(meta_data, colWidths=[2*inch, 4*inch])
+    meta_table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (0, -1), colors.grey),
+        ('TEXTCOLOR', (0, 0), (0, -1), colors.whitesmoke),
+        ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+        ('FONTNAME', (0, 0), (0, -1), 'Helvetica-Bold'),
+        ('FONTSIZE', (0, 0), (-1, -1), 10),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 12),
+        ('BACKGROUND', (1, 0), (1, -1), colors.beige),
+        ('GRID', (0, 0), (-1, -1), 1, colors.black)
+    ]))
+    story.append(meta_table)
+    story.append(Spacer(1, 0.3*inch))
+    
+    # Tabla de órdenes
+    if ordenes:
+        data = [["ID", "Máquina", "Patrón", "Prioridad", "Estado", "Ventana Sugerida", "Responsable", "Eventos"]]
+        
+        for orden in ordenes:
+            ventana_str = ""
+            if orden.get("ventana_sugerida"):
+                try:
+                    ventana_dt = datetime.fromisoformat(orden["ventana_sugerida"].replace('Z', '+00:00'))
+                    ventana_str = ventana_dt.strftime("%d/%m/%Y %H:%M")
+                except:
+                    ventana_str = str(orden.get("ventana_sugerida", ""))
+            
+            data.append([
+                str(orden.get("id", "")),
+                orden.get("maquina", ""),
+                orden.get("tipo_patron", ""),
+                orden.get("prioridad", ""),
+                orden.get("estado", ""),
+                ventana_str,
+                orden.get("responsable", "") or "",
+                str(orden.get("eventos_asociados", 0))
+            ])
+        
+        table = Table(data, colWidths=[0.5*inch, 1*inch, 1.2*inch, 0.8*inch, 0.8*inch, 1.2*inch, 1*inch, 0.6*inch])
+        table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+            ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, 0), 8),
+            ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+            ('BACKGROUND', (0, 1), (-1, -1), colors.white),
+            ('FONTSIZE', (0, 1), (-1, -1), 7),
+            ('GRID', (0, 0), (-1, -1), 1, colors.black),
+            ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.lightgrey])
+        ]))
+        story.append(table)
+    else:
+        story.append(Paragraph("No hay órdenes de mantenimiento activas.", styles['Normal']))
+    
+    doc.build(story)
+    buffer.seek(0)
+    return buffer
+
+
+def generar_excel_plan_mantenimiento(
+    ordenes: List[Dict],
+    maquina: Optional[str] = None,
+    usuario: Optional[str] = None
+) -> BytesIO:
+    """
+    Genera un archivo Excel con el plan de mantenimiento preventivo.
+    """
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Plan Mantenimiento"
+    
+    # Estilos
+    header_fill = PatternFill(start_color="366092", end_color="366092", fill_type="solid")
+    header_font = Font(bold=True, color="FFFFFF", size=11)
+    border = Border(
+        left=Side(style='thin'),
+        right=Side(style='thin'),
+        top=Side(style='thin'),
+        bottom=Side(style='thin')
+    )
+    center_align = Alignment(horizontal='center', vertical='center')
+    left_align = Alignment(horizontal='left', vertical='center')
+    
+    # Título
+    ws.merge_cells('A1:H1')
+    ws['A1'] = "Plan de Mantenimiento Preventivo"
+    ws['A1'].font = Font(bold=True, size=14)
+    ws['A1'].alignment = center_align
+    
+    # Metadatos
+    row = 3
+    if maquina:
+        ws[f'A{row}'] = "Máquina:"
+        ws[f'B{row}'] = maquina
+        ws[f'A{row}'].font = Font(bold=True)
+        row += 1
+    ws[f'A{row}'] = "Fecha de Generación:"
+    ws[f'B{row}'] = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+    ws[f'A{row}'].font = Font(bold=True)
+    row += 1
+    if usuario:
+        ws[f'A{row}'] = "Generado por:"
+        ws[f'B{row}'] = usuario
+        ws[f'A{row}'].font = Font(bold=True)
+        row += 1
+    ws[f'A{row}'] = "Total de Órdenes:"
+    ws[f'B{row}'] = len(ordenes)
+    ws[f'A{row}'].font = Font(bold=True)
+    row += 2
+    
+    # Encabezados
+    headers = ["ID", "Máquina", "Patrón", "Prioridad", "Estado", "Ventana Sugerida", "Responsable", "Eventos"]
+    for col_num, header in enumerate(headers, 1):
+        cell = ws.cell(row=row, column=col_num)
+        cell.value = header
+        cell.fill = header_fill
+        cell.font = header_font
+        cell.alignment = center_align
+        cell.border = border
+    
+    row += 1
+    
+    # Datos
+    for orden in ordenes:
+        ventana_str = ""
+        if orden.get("ventana_sugerida"):
+            try:
+                ventana_dt = datetime.fromisoformat(orden["ventana_sugerida"].replace('Z', '+00:00'))
+                ventana_str = ventana_dt.strftime("%d/%m/%Y %H:%M")
+            except:
+                ventana_str = str(orden.get("ventana_sugerida", ""))
+        
+        data_row = [
+            orden.get("id", ""),
+            orden.get("maquina", ""),
+            orden.get("tipo_patron", ""),
+            orden.get("prioridad", ""),
+            orden.get("estado", ""),
+            ventana_str,
+            orden.get("responsable", "") or "",
+            orden.get("eventos_asociados", 0)
+        ]
+        
+        for col_num, value in enumerate(data_row, 1):
+            cell = ws.cell(row=row, column=col_num)
+            cell.value = value
+            cell.alignment = left_align
+            cell.border = border
+        
+        row += 1
+    
+    # Ajustar ancho de columnas
+    column_widths = [8, 15, 20, 12, 12, 20, 20, 10]
+    for col_num, width in enumerate(column_widths, 1):
+        ws.column_dimensions[get_column_letter(col_num)].width = width
+    
+    # Guardar en buffer
+    buffer = BytesIO()
+    wb.save(buffer)
+    buffer.seek(0)
+    return buffer
+

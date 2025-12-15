@@ -61,7 +61,8 @@ from modules.email_service import EmailService
 
 # NUEVO: Importar servicios de historial y exportación
 from modules.crud_historial import consultar_historial_calidad, registrar_auditoria, obtener_historial_completo_para_exportacion
-from modules.export_service import generar_pdf_historial, generar_excel_historial
+from modules.export_service import generar_pdf_historial, generar_excel_historial, generar_pdf_plan_mantenimiento, generar_excel_plan_mantenimiento
+from modules.mantenimiento_service import MantenimientoService
 from datetime import datetime
 from typing import Optional
 
@@ -143,11 +144,32 @@ async def inspeccionar_calidad(file: UploadFile = File(...)):
             raise HTTPException(status_code=400, detail=resultado["mensaje"])
 
         # Guardar resultado en MySQL
-        guardar_inspeccion(
+        inspeccion_guardada = guardar_inspeccion(
             resultado=resultado["status"],
             max_distancia=resultado["max_distancia"],
             puntos_defectuosos=resultado["puntos_defectuosos"],
         )
+        
+        # NUEVO: Si la inspección fue RECHAZADA, registrar evento de mantenimiento
+        if resultado["status"] == "RECHAZADA" and inspeccion_guardada:
+            # Obtener máquina y turno de la inspección guardada o usar valores por defecto
+            maquina = getattr(inspeccion_guardada, 'maquina', None) or "MAQUINA_01"
+            turno = getattr(inspeccion_guardada, 'turno', None)
+            lote_id = getattr(inspeccion_guardada, 'lote_id', None)
+            
+            # Registrar evento de mantenimiento si hay defectos
+            if resultado.get("puntos_defectuosos") and len(resultado["puntos_defectuosos"]) > 0:
+                try:
+                    MantenimientoService.registrar_evento(
+                        maquina=maquina,
+                        tipo_evento=inspeccion_guardada.categoria or "Defecto detectado",
+                        inspeccion_id=inspeccion_guardada.id,
+                        lote_id=lote_id,
+                        turno=turno
+                    )
+                except Exception as e:
+                    # No fallar la inspección si falla el registro de mantenimiento
+                    print(f"[WARNING] Error al registrar evento de mantenimiento: {str(e)}")
 
         # NUEVO: Verificar si se debe crear una alerta automática
         alerta_info = AlertService.verificar_y_crear_alerta()
@@ -824,6 +846,250 @@ def exportar_historial_excel(
         import traceback
         error_detail = f"{str(e)}\n{traceback.format_exc()}"
         print(f"[ERROR] Error en exportar_historial_excel: {error_detail}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ---------------------------------------------------------
+# ENDPOINTS: MANTENIMIENTO PREVENTIVO
+# ---------------------------------------------------------
+
+class DatosRegistrarEvento(BaseModel):
+    maquina: str
+    tipo_evento: str
+    inspeccion_id: Optional[int] = None
+    lote_id: Optional[int] = None
+    turno: Optional[str] = None
+    responsable: Optional[str] = None
+
+class DatosMarcarOrden(BaseModel):
+    accion_correctiva: str
+    evidencia: Optional[str] = None
+    usuario: Optional[str] = None
+
+class DatosAsignarResponsable(BaseModel):
+    responsable: str
+    usuario: Optional[str] = None
+
+class DatosUmbralAlerta(BaseModel):
+    maquina: str
+    tipo_defecto: str
+    umbral_eventos: int = 3
+    ventana_tiempo_minutos: int = 60
+    umbral_porcentaje_lote: Optional[float] = None
+    activo: bool = True
+
+
+@app.post("/api/mantenimiento/registrar-evento")
+def registrar_evento_mantenimiento(datos: DatosRegistrarEvento):
+    """
+    Registra un evento de mantenimiento y verifica si debe crear una orden preventiva.
+    """
+    try:
+        resultado = MantenimientoService.registrar_evento(
+            maquina=datos.maquina,
+            tipo_evento=datos.tipo_evento,
+            inspeccion_id=datos.inspeccion_id,
+            lote_id=datos.lote_id,
+            turno=datos.turno,
+            responsable=datos.responsable
+        )
+        
+        return JSONResponse(content=resultado)
+    
+    except Exception as e:
+        import traceback
+        error_detail = f"{str(e)}\n{traceback.format_exc()}"
+        print(f"[ERROR] Error en registrar_evento_mantenimiento: {error_detail}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/mantenimiento/alertas")
+def obtener_alertas_preventivas(maquina: Optional[str] = None):
+    """
+    Obtiene todas las alertas/órdenes de mantenimiento activas.
+    """
+    try:
+        alertas = MantenimientoService.obtener_alertas_activas(maquina=maquina)
+        return JSONResponse(content={"alertas": alertas, "total": len(alertas)})
+    
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/mantenimiento/historial")
+def obtener_historial_mantenimiento(
+    maquina: Optional[str] = None,
+    fecha_inicio: Optional[str] = None,
+    fecha_fin: Optional[str] = None,
+    estado: Optional[str] = None,
+    tipo_evento: Optional[str] = None
+):
+    """
+    Obtiene el historial de eventos y órdenes de mantenimiento.
+    """
+    try:
+        fecha_inicio_dt = None
+        fecha_fin_dt = None
+        
+        if fecha_inicio:
+            fecha_inicio_dt = datetime.strptime(fecha_inicio, "%Y-%m-%d")
+        if fecha_fin:
+            fecha_fin_dt = datetime.strptime(fecha_fin, "%Y-%m-%d")
+        
+        historial = MantenimientoService.obtener_historial(
+            maquina=maquina,
+            fecha_inicio=fecha_inicio_dt,
+            fecha_fin=fecha_fin_dt,
+            estado=estado,
+            tipo_evento=tipo_evento
+        )
+        
+        return JSONResponse(content={"historial": historial, "total": len(historial)})
+    
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/mantenimiento/ordenes/{orden_id}/marcar-realizada")
+def marcar_orden_realizada(orden_id: int, datos: DatosMarcarOrden):
+    """
+    Marca una orden de mantenimiento como realizada con acción correctiva y evidencia.
+    """
+    try:
+        resultado = MantenimientoService.marcar_orden_realizada(
+            orden_id=orden_id,
+            accion_correctiva=datos.accion_correctiva,
+            evidencia=datos.evidencia,
+            usuario=datos.usuario
+        )
+        
+        if not resultado.get("success"):
+            raise HTTPException(status_code=404, detail=resultado.get("mensaje"))
+        
+        return JSONResponse(content=resultado)
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/mantenimiento/ordenes/{orden_id}/asignar-responsable")
+def asignar_responsable_orden(orden_id: int, datos: DatosAsignarResponsable):
+    """
+    Asigna un responsable a una orden de mantenimiento.
+    """
+    try:
+        resultado = MantenimientoService.asignar_responsable(
+            orden_id=orden_id,
+            responsable=datos.responsable,
+            usuario=datos.usuario
+        )
+        
+        if not resultado.get("success"):
+            raise HTTPException(status_code=404, detail=resultado.get("mensaje"))
+        
+        return JSONResponse(content=resultado)
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/mantenimiento/plan/exportar-pdf")
+def exportar_plan_mantenimiento_pdf(
+    maquina: Optional[str] = None,
+    usuario: Optional[str] = None
+):
+    """
+    Exporta el plan de mantenimiento preventivo a PDF.
+    """
+    try:
+        ordenes = MantenimientoService.obtener_alertas_activas(maquina=maquina)
+        
+        pdf_buffer = generar_pdf_plan_mantenimiento(
+            ordenes=ordenes,
+            maquina=maquina,
+            usuario=usuario
+        )
+        
+        nombre_archivo = f"plan_mantenimiento_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
+        if maquina:
+            nombre_archivo = f"plan_mantenimiento_{maquina.replace(' ', '_')}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
+        
+        return StreamingResponse(
+            pdf_buffer,
+            media_type="application/pdf",
+            headers={"Content-Disposition": f"attachment; filename={nombre_archivo}"}
+        )
+    
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/mantenimiento/plan/exportar-excel")
+def exportar_plan_mantenimiento_excel(
+    maquina: Optional[str] = None,
+    usuario: Optional[str] = None
+):
+    """
+    Exporta el plan de mantenimiento preventivo a Excel.
+    """
+    try:
+        ordenes = MantenimientoService.obtener_alertas_activas(maquina=maquina)
+        
+        excel_buffer = generar_excel_plan_mantenimiento(
+            ordenes=ordenes,
+            maquina=maquina,
+            usuario=usuario
+        )
+        
+        nombre_archivo = f"plan_mantenimiento_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+        if maquina:
+            nombre_archivo = f"plan_mantenimiento_{maquina.replace(' ', '_')}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+        
+        return StreamingResponse(
+            excel_buffer,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": f"attachment; filename={nombre_archivo}"}
+        )
+    
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/mantenimiento/umbrales")
+def configurar_umbral(datos: DatosUmbralAlerta):
+    """
+    Configura o actualiza un umbral de alerta para mantenimiento preventivo.
+    """
+    try:
+        resultado = MantenimientoService.configurar_umbral(
+            maquina=datos.maquina,
+            tipo_defecto=datos.tipo_defecto,
+            umbral_eventos=datos.umbral_eventos,
+            ventana_tiempo_minutos=datos.ventana_tiempo_minutos,
+            umbral_porcentaje_lote=datos.umbral_porcentaje_lote,
+            activo=datos.activo
+        )
+        
+        return JSONResponse(content=resultado)
+    
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/mantenimiento/umbrales")
+def listar_umbrales(maquina: Optional[str] = None, activo: Optional[bool] = None):
+    """
+    Lista los umbrales de alerta configurados.
+    """
+    try:
+        umbrales = MantenimientoService.listar_umbrales(maquina=maquina, activo=activo)
+        return JSONResponse(content={"umbrales": umbrales, "total": len(umbrales)})
+    
+    except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 

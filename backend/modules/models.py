@@ -17,7 +17,6 @@ class Lote(Base):
     estado = Column(String(20), default="EN PROCESO")
     fecha = Column(DateTime, server_default=text('CURRENT_TIMESTAMP'))  # Compatible con MySQL
     # Nuevos campos para HU de historial por cliente
-    cliente = Column(String(100), index=True, nullable=True)  # Nombre del cliente
     tipo_producto = Column(String(50), index=True, nullable=True)  # Tipo de producto
     orden = Column(String(50), nullable=True)  # Número de orden
 
