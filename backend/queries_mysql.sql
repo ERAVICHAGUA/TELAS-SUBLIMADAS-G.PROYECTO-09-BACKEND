@@ -112,3 +112,85 @@ CREATE INDEX IF NOT EXISTS idx_tipo_producto ON lotes(tipo_producto);
 -- Agregar campo observaciones a tabla inspecciones (si no existe)
 ALTER TABLE inspecciones 
 ADD COLUMN IF NOT EXISTS observaciones TEXT;
+
+-- Agregar campos para mantenimiento preventivo a tabla inspecciones
+ALTER TABLE inspecciones 
+ADD COLUMN IF NOT EXISTS maquina VARCHAR(50),
+ADD COLUMN IF NOT EXISTS turno VARCHAR(20);
+
+-- Crear índices para mantenimiento
+CREATE INDEX IF NOT EXISTS idx_inspecciones_maquina ON inspecciones(maquina);
+
+-- ============================================
+-- TABLA: eventos_mantenimiento
+-- ============================================
+CREATE TABLE IF NOT EXISTS eventos_mantenimiento (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    maquina VARCHAR(50) NOT NULL,
+    tipo_evento VARCHAR(50) NOT NULL,
+    fecha_hora DATETIME DEFAULT CURRENT_TIMESTAMP,
+    lote_id INT NULL,
+    turno VARCHAR(20),
+    inspeccion_id INT NULL,
+    responsable VARCHAR(100),
+    estado VARCHAR(20) DEFAULT 'ABIERTA',
+    orden_mantenimiento_id INT NULL,
+    INDEX idx_maquina (maquina),
+    INDEX idx_tipo_evento (tipo_evento),
+    INDEX idx_fecha_hora (fecha_hora),
+    INDEX idx_estado (estado),
+    INDEX idx_lote_id (lote_id),
+    INDEX idx_orden_mantenimiento_id (orden_mantenimiento_id),
+    FOREIGN KEY (lote_id) REFERENCES lotes(id) ON DELETE SET NULL,
+    FOREIGN KEY (inspeccion_id) REFERENCES inspecciones(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ============================================
+-- TABLA: ordenes_mantenimiento
+-- ============================================
+CREATE TABLE IF NOT EXISTS ordenes_mantenimiento (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    maquina VARCHAR(50) NOT NULL,
+    tipo_patron VARCHAR(50) NOT NULL,
+    prioridad VARCHAR(20) DEFAULT 'MEDIA',
+    estado VARCHAR(20) DEFAULT 'ABIERTA',
+    ventana_sugerida DATETIME NULL,
+    responsable VARCHAR(100),
+    accion_correctiva TEXT,
+    evidencia TEXT,
+    fecha_creacion DATETIME DEFAULT CURRENT_TIMESTAMP,
+    fecha_cierre DATETIME NULL,
+    creado_por VARCHAR(100),
+    cerrado_por VARCHAR(100),
+    INDEX idx_maquina (maquina),
+    INDEX idx_tipo_patron (tipo_patron),
+    INDEX idx_prioridad (prioridad),
+    INDEX idx_estado (estado),
+    INDEX idx_fecha_creacion (fecha_creacion)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ============================================
+-- TABLA: umbrales_alerta
+-- ============================================
+CREATE TABLE IF NOT EXISTS umbrales_alerta (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    maquina VARCHAR(50) NOT NULL,
+    tipo_defecto VARCHAR(50) NOT NULL,
+    umbral_eventos INT DEFAULT 3,
+    ventana_tiempo_minutos INT DEFAULT 60,
+    umbral_porcentaje_lote FLOAT NULL,
+    activo BOOLEAN DEFAULT TRUE,
+    fecha_creacion DATETIME DEFAULT CURRENT_TIMESTAMP,
+    fecha_actualizacion DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX idx_maquina (maquina),
+    INDEX idx_tipo_defecto (tipo_defecto),
+    INDEX idx_activo (activo),
+    UNIQUE KEY unique_maquina_tipo (maquina, tipo_defecto)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ============================================
+-- VERIFICACIÓN: Mostrar estructura de nuevas tablas
+-- ============================================
+DESCRIBE eventos_mantenimiento;
+DESCRIBE ordenes_mantenimiento;
+DESCRIBE umbrales_alerta;

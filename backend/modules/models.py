@@ -85,6 +85,10 @@ class Inspeccion(Base):
     # Relación con Lote (opcional)
     lote_id = Column(Integer, ForeignKey("lotes.id"), nullable=True)
     lote = relationship("Lote", back_populates="inspecciones")
+    
+    # Campos para mantenimiento preventivo
+    maquina = Column(String(50), index=True, nullable=True)  # Identificador de máquina láser
+    turno = Column(String(20), nullable=True)  # Turno de producción
 
     
 
@@ -145,3 +149,76 @@ class Auditoria(Base):
     formato_exportacion = Column(String(10), nullable=True)  # 'PDF' o 'EXCEL' (solo para descargas)
     parametros_busqueda = Column(Text, nullable=True)  # JSON con todos los parámetros usados
     fecha = Column(DateTime, server_default=text('CURRENT_TIMESTAMP'))  # Fecha de la acción
+
+
+# ----------------------------
+# MODELO EVENTO MANTENIMIENTO
+# ----------------------------
+class EventoMantenimiento(Base):
+    """
+    Modelo para registrar eventos/incidencias de fallas y desgastes detectados.
+    """
+    __tablename__ = "eventos_mantenimiento"
+
+    id = Column(Integer, primary_key=True, index=True)
+    maquina = Column(String(50), index=True)  # Identificador de máquina láser
+    tipo_evento = Column(String(50), index=True)  # Tipo de defecto/falla (ej: "Rebaba severa", "Corte incompleto")
+    fecha_hora = Column(DateTime, server_default=text('CURRENT_TIMESTAMP'), index=True)
+    lote_id = Column(Integer, ForeignKey("lotes.id"), nullable=True)
+    turno = Column(String(20), nullable=True)
+    inspeccion_id = Column(Integer, ForeignKey("inspecciones.id"), nullable=True)  # Relación con inspección
+    responsable = Column(String(100), nullable=True)  # Responsable que detectó
+    estado = Column(String(20), default="ABIERTA", index=True)  # ABIERTA, EN_PROGRESO, REALIZADA
+    orden_mantenimiento_id = Column(Integer, ForeignKey("ordenes_mantenimiento.id"), nullable=True)
+    
+    # Relaciones
+    lote = relationship("Lote")
+    inspeccion = relationship("Inspeccion")
+    orden_mantenimiento = relationship("OrdenMantenimiento", back_populates="eventos")
+
+
+# ----------------------------
+# MODELO ORDEN MANTENIMIENTO
+# ----------------------------
+class OrdenMantenimiento(Base):
+    """
+    Modelo para órdenes de mantenimiento preventivo generadas automáticamente.
+    """
+    __tablename__ = "ordenes_mantenimiento"
+
+    id = Column(Integer, primary_key=True, index=True)
+    maquina = Column(String(50), index=True)  # Identificador de máquina láser
+    tipo_patron = Column(String(50), index=True)  # Patrón de defecto que activó la orden
+    prioridad = Column(String(20), default="MEDIA", index=True)  # ALTA, MEDIA, BAJA
+    estado = Column(String(20), default="ABIERTA", index=True)  # ABIERTA, EN_PROGRESO, REALIZADA
+    ventana_sugerida = Column(DateTime, nullable=True)  # Ventana de tiempo sugerida para mantenimiento
+    responsable = Column(String(100), nullable=True)  # Responsable asignado
+    accion_correctiva = Column(Text, nullable=True)  # Descripción de la acción correctiva
+    evidencia = Column(Text, nullable=True)  # Evidencia de la acción realizada (JSON o texto)
+    fecha_creacion = Column(DateTime, server_default=text('CURRENT_TIMESTAMP'))
+    fecha_cierre = Column(DateTime, nullable=True)
+    creado_por = Column(String(100), nullable=True)  # Usuario que creó la orden
+    cerrado_por = Column(String(100), nullable=True)  # Usuario que cerró la orden
+    
+    # Relación con eventos
+    eventos = relationship("EventoMantenimiento", back_populates="orden_mantenimiento")
+
+
+# ----------------------------
+# MODELO UMBRAL ALERTA
+# ----------------------------
+class UmbralAlerta(Base):
+    """
+    Modelo para configurar umbrales de alerta por máquina y tipo de defecto.
+    """
+    __tablename__ = "umbrales_alerta"
+
+    id = Column(Integer, primary_key=True, index=True)
+    maquina = Column(String(50), index=True)
+    tipo_defecto = Column(String(50), index=True)  # Tipo de defecto a monitorear
+    umbral_eventos = Column(Integer, default=3)  # Número de eventos en ventana de tiempo
+    ventana_tiempo_minutos = Column(Integer, default=60)  # Ventana de tiempo en minutos
+    umbral_porcentaje_lote = Column(Float, nullable=True)  # Porcentaje del lote (ej: 5.0)
+    activo = Column(Boolean, default=True)
+    fecha_creacion = Column(DateTime, server_default=text('CURRENT_TIMESTAMP'))
+    fecha_actualizacion = Column(DateTime, server_default=text('CURRENT_TIMESTAMP'), onupdate=text('CURRENT_TIMESTAMP'))
